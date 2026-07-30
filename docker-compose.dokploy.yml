@@ -1,13 +1,16 @@
-# Platform-neutral production stack adapted for Dokploy
-# TLS + reverse proxy are handled externally by Dokploy's Traefik.
+# Production stack for Dokploy
+# TLS + reverse proxy are handled externally by Dokploy's Traefik (no host port bindings).
 #
-# TWO database roles by design: the SUPERUSER (runs migrations) and the
-# NON-superuser runtime role (what the server runs as, ensuring RLS).
+# TWO database roles by design: the SUPERUSER (runs DDL) and the NON-superuser
+# runtime role (what the server runs as, ensuring Row-Level-Security tenant isolation).
+#
+# Required env vars in Dokploy:
+#   PUBLIC_URL, JWT_SECRET, ENCRYPTION_KEY,
+#   DB_SUPER_USER, DB_SUPER_PASSWORD, DB_APP_USER, DB_APP_PASSWORD
 
 services:
   agents:
-    image: ${AGENTS_IMAGE:-ghcr.io/fazer-ai/agents:latest}
-    pull_policy: always
+    build: .
     restart: always
     environment:
       - NODE_ENV=production
@@ -19,30 +22,36 @@ services:
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - JWT_SECRET=${JWT_SECRET}
       - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - MCP_JWT_SECRET=${MCP_JWT_SECRET}
       
-      # MIGRATION URL uses the superuser credentials
+      # MIGRATION URL uses the superuser credentials (CREATE EXTENSION, role/DDL)
       - MIGRATION_DATABASE_URL=postgres://${DB_SUPER_USER}:${DB_SUPER_PASSWORD}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-secretaria_v4_db}
       
-      # APP URL uses the restricted application credentials
+      # APP URL uses the restricted application credentials (RLS-respecting)
       - DATABASE_URL=postgres://${DB_APP_USER}:${DB_APP_PASSWORD}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-secretaria_v4_db}
       - LANGGRAPH_DATABASE_URL=postgres://${DB_APP_USER}:${DB_APP_PASSWORD}@${DB_HOST:-postgres}:${DB_PORT:-5432}/${DB_NAME:-secretaria_v4_db}
       
       - BRANDING_STORAGE_DIR=/app/storage/branding
       - QUOTES_STORAGE_DIR=/app/storage/quotes
       - MCP_DCR_ENABLED=true
+      - WEBHOOK_WORKER_ENABLED=true
+      - SCHEDULER_WORKER_ENABLED=true
+      - DEBOUNCE_WORKER_ENABLED=true
+      - ALERT_WORKER_ENABLED=true
     volumes:
       - 'storage:/app/storage'
     healthcheck:
       test: ['CMD-SHELL', 'wget -qO- http://localhost:3000/api/health || exit 1']
       interval: 20s
       timeout: 10s
+      start_period: 45s
       retries: 5
     depends_on:
       postgres:
         condition: service_healthy
 
   postgres:
-    image: 'pgvector/pgvector:pg17'
+    image: pgvector/pgvector:pg17
     restart: always
     environment:
       - POSTGRES_DB=${DB_NAME:-secretaria_v4_db}
