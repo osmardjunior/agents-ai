@@ -30,8 +30,6 @@ services:
       - BRANDING_STORAGE_DIR=/app/storage/branding
       - QUOTES_STORAGE_DIR=/app/storage/quotes
       - MCP_DCR_ENABLED=true
-    ports:
-      - '3000:3000'
     volumes:
       - 'storage:/app/storage'
     healthcheck:
